@@ -20,6 +20,9 @@ namespace fi {
 		inline const std::pair<std::string, std::string> CMD_ROM_TO_MIDI{ "rom-to-midi" , "r2m" };
 		inline const std::pair<std::string, std::string> CMD_MML_TO_LILYPOND{ "mml-to-ly" , "m2l" };
 		inline const std::pair<std::string, std::string> CMD_ROM_TO_LILYPOND{ "rom-to-ly" , "r2l" };
+		inline const std::pair<std::string, std::string> CMD_PMUSIC_COMPILE{ "pmusic-compile" , "pmc" };
+		inline const std::pair<std::string, std::string> CMD_PMUSIC_PROVIDER_INSTALL{
+			"install-music-intent" , "pmi" };
 		inline const std::pair<std::string, std::string> CMD_EXTRACT_MUSIC{ "extract-music" , "xm" };
 		inline const std::pair<std::string, std::string> CMD_BUILD_MUSIC{ "build-music" , "bm" };
 		inline const std::pair<std::string, std::string> CMD_EXTRACT_BSCRIPTS{ "extract-bscript" , "xb" };
@@ -46,6 +49,15 @@ namespace fi {
 		inline const std::pair<std::string, std::string> CLI_SKIP_PATCHING { "--skip", "-skip" };
 		inline const std::pair<std::string, std::string> CLI_TILESET{ "--tileset", "-tileset" };
 		inline const std::pair<std::string, std::string> CLI_TILES{ "--tiles", "-tiles" };
+
+		inline const std::pair<std::string, std::string> CLI_PMUSIC_HYSTERESIS_FRAMES
+		{ "--hysteresis", "-ph" };
+
+		inline const std::pair<std::string, std::string> CLI_PMUSIC_RAM_BASE
+		{ "--ram-base", "-pr" };
+
+		inline const std::pair<std::string, std::string> CLI_PMUSIC_REPORT_JSON
+		{ "--json", "-pj" };
 
 	}
 }

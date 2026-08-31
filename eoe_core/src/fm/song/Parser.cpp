@@ -72,7 +72,9 @@ fm::MMLSong fm::Parser::parse_single_song(void) {
 	fm::MMLSong song;
 
 	// consume "#song"
-	advance();
+	const Token song_header{ advance() };
+	song.source_line = song_header.line;
+	song.source_column = song_header.column;
 
 	// read song number
 	if (check(TokenType::Number)) {
@@ -86,6 +88,11 @@ fm::MMLSong fm::Parser::parse_single_song(void) {
 			auto l_tempo{ parse_tempo_set_event() };
 			auto& tmpevent{ std::get<TempoSetEvent>(l_tempo) };
 			song.tempo = tmpevent.tempo;
+			++song.song_level_tempo_count;
+			if (song.channels.empty())
+				song.has_explicit_tempo = true;
+			else
+				song.has_post_channel_tempo = true;
 			continue;
 		}
 
@@ -95,8 +102,10 @@ fm::MMLSong fm::Parser::parse_single_song(void) {
 
 			// channel directive?
 			if (is_channel_name(d.text)) {
-				song.channels.push_back(parse_channel(d.text,
-					song.tempo));
+				auto channel{ parse_channel(d.text, song.tempo) };
+				channel.source_line = d.line;
+				channel.source_column = d.column;
+				song.channels.push_back(std::move(channel));
 				continue;
 			}
 			// title directive

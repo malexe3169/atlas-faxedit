@@ -1,6 +1,7 @@
 #ifndef FM_MML_SONG_H
 #define FM_MML_SONG_H
 
+#include <cstddef>
 #include <string>
 #include <optional>
 #include <vector>
@@ -14,7 +15,12 @@ namespace fm {
 
 		std::vector<fm::MMLChannel> channels;
 		int index{ 0 };
+		int source_line{ 0 };
+		int source_column{ 0 };
 		fm::Fraction tempo{ fm::Fraction(100, 1) };
+		bool has_explicit_tempo{ false };
+		std::size_t song_level_tempo_count{ 0 };
+		bool has_post_channel_tempo{ false };
 
 		// lilypond functions
 		std::string m_title, m_time_sig;

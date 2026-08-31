@@ -1,20 +1,138 @@
 #include "Cli.h"
 #include "ConfigPaths.h"
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <filesystem>
 #include <format>
 #include <iostream>
+#include <span>
 #include <stdexcept>
+#include <string_view>
 #include "application_constants.h"
 #include "fe/fe_app_constants.h"
 #include "fe/Message.h"
 #include "fe/game/game_gfx.h"
+#include "fe/nes_constants.h"
 #include "fi/fi_constants.h"
+#include "common/klib/Asm6502.h"
 #include "common/klib/Kfile.h"
 #include "common/klib/Kstring.h"
+#include "fe/ROM_Manager.h"
 #include "fe/script/ScriptManager.h"
+#include "fm/ProceduralMusic.h"
+#include "fh/AtlasDevFrameScheduler.h"
+#include "fh/AtlasDevMusicIntent.h"
+#include "fh/GeneralHack.h"
+#include "fh/HackManager.h"
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+namespace {
+	struct OwnedRange {
+		std::string_view name;
+		std::size_t cpu_start;
+		std::size_t cpu_end;
+		std::size_t file_start;
+		std::size_t file_end;
+	};
+
+	std::filesystem::path normalized_absolute(const std::filesystem::path& path) {
+		std::error_code ec;
+		auto result{ std::filesystem::absolute(path, ec) };
+		if (ec)
+			result = path;
+		auto canonical{ std::filesystem::weakly_canonical(result, ec) };
+		return ec ? result.lexically_normal() : canonical;
+	}
+
+	std::string sha256(std::span<const byte> input) {
+		static constexpr std::array<std::uint32_t, 64> ROUND{
+			0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+			0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+			0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+			0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+			0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+			0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+			0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+			0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+			0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+			0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+			0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+			0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+			0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+			0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+			0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+			0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+		};
+		std::array<std::uint32_t, 8> hash{
+			0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+			0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+		};
+		std::vector<byte> padded(input.begin(), input.end());
+		const std::uint64_t bit_count{ static_cast<std::uint64_t>(input.size()) * 8 };
+		padded.push_back(0x80);
+		while (padded.size() % 64 != 56)
+			padded.push_back(0x00);
+		for (int shift{ 56 }; shift >= 0; shift -= 8)
+			padded.push_back(static_cast<byte>(bit_count >> shift));
+
+		for (std::size_t block{ 0 }; block < padded.size(); block += 64) {
+			std::array<std::uint32_t, 64> words{};
+			for (std::size_t i{ 0 }; i < 16; ++i) {
+				const auto offset{ block + i * 4 };
+				words[i] = (static_cast<std::uint32_t>(padded[offset]) << 24)
+					| (static_cast<std::uint32_t>(padded[offset + 1]) << 16)
+					| (static_cast<std::uint32_t>(padded[offset + 2]) << 8)
+					| padded[offset + 3];
+			}
+			for (std::size_t i{ 16 }; i < words.size(); ++i) {
+				const auto s0{ std::rotr(words[i - 15], 7)
+					^ std::rotr(words[i - 15], 18) ^ (words[i - 15] >> 3) };
+				const auto s1{ std::rotr(words[i - 2], 17)
+					^ std::rotr(words[i - 2], 19) ^ (words[i - 2] >> 10) };
+				words[i] = words[i - 16] + s0 + words[i - 7] + s1;
+			}
+
+			auto [a, b, c, d, e, f, g, h] = hash;
+			for (std::size_t i{ 0 }; i < words.size(); ++i) {
+				const auto sigma1{ std::rotr(e, 6) ^ std::rotr(e, 11) ^ std::rotr(e, 25) };
+				const auto choice{ (e & f) ^ (~e & g) };
+				const auto temp1{ h + sigma1 + choice + ROUND[i] + words[i] };
+				const auto sigma0{ std::rotr(a, 2) ^ std::rotr(a, 13) ^ std::rotr(a, 22) };
+				const auto majority{ (a & b) ^ (a & c) ^ (b & c) };
+				const auto temp2{ sigma0 + majority };
+				h = g; g = f; f = e; e = d + temp1;
+				d = c; c = b; b = a; a = temp1 + temp2;
+			}
+			hash[0] += a; hash[1] += b; hash[2] += c; hash[3] += d;
+			hash[4] += e; hash[5] += f; hash[6] += g; hash[7] += h;
+		}
+
+		std::string result;
+		for (const auto value : hash)
+			result += std::format("{:08x}", value);
+		return result;
+	}
+
+	std::string sha256(const std::vector<byte>& bytes, const OwnedRange& range) {
+		return sha256(std::span<const byte>{
+			bytes.data() + range.file_start, range.file_end - range.file_start });
+	}
+
+	std::uint64_t owned_fnv1a64(const std::vector<byte>& bytes,
+		std::span<const OwnedRange> ranges) {
+		std::uint64_t hash{ 0xcbf29ce484222325ULL };
+		for (const auto& range : ranges)
+			for (std::size_t i{ range.file_start }; i < range.file_end; ++i) {
+				hash ^= bytes[i];
+				hash *= 0x100000001b3ULL;
+			}
+		return hash;
+	}
+}
 
 static void print_message(const fe::Message& p_message) {
 	std::cout << p_message.text << '\n';
@@ -63,7 +181,12 @@ void fi::Cli::print_help(void) const {
 		"\n"
 		"  LilyPond:\n"
 		"    m2l, mml-to-ly           - Convert MML to LilyPond files\n"
-		"    r2l, rom-to-ly           - Extract music from ROM as LilyPond files\n\n";
+		"    r2l, rom-to-ly           - Extract music from ROM as LilyPond files\n"
+		"\n"
+		"  Procedural music:\n"
+		"    pmc, pmusic-compile      - Validate annotated MML and emit a JSON kit\n"
+		"    pmi, install-music-intent\n"
+		"                             - Install the transaction-safe state publisher\n\n";
 
 	std::cout << "Options:\n";
 	std::cout << "  Common options:\n";
@@ -80,6 +203,10 @@ void fi::Cli::print_help(void) const {
 	std::cout << "  Project build options:\n";
 	std::cout << "    -skip, --skip <list>         Comma-separated list of subsystems to omit from patching (see the docs)\n";
 	std::cout << "    -aco, --allow-cin-overflow   Allow cinematic data to grow into iScript region 2\n";
+	std::cout << "  Procedural-music provider options:\n";
+	std::cout << "    -pr, --ram-base <address>     ABI base; must be $04ef (default $04ef)\n";
+	std::cout << "    -ph, --hysteresis <n>         Consecutive eligible samples, 0..65535 (default 30)\n";
+	std::cout << "    -pj, --json <file>            Write deterministic installation report JSON\n";
 }
 
 fi::Cli::Cli(int argc, char** argv) :
@@ -88,7 +215,9 @@ fi::Cli::Cli(int argc, char** argv) :
 	m_overwrite{ false },
 	m_notes{ true },
 	m_lilypond_percussion{ false },
-	m_allow_cinematic_overflow{ false }
+	m_allow_cinematic_overflow{ false },
+	m_pmusic_hysteresis_frames{ 30 },
+	m_pmusic_ram_base{ fh::ami::RAM_REQUEST }
 {
 	const auto config_paths{ paths::resolve_config_paths(argc > 0 ? argv[0] : nullptr) };
 	m_config_xml = config_paths.base.string();
@@ -147,6 +276,10 @@ fi::Cli::Cli(int argc, char** argv) :
 		mml_to_lilypond(m_in_file, m_out_file);
 	else if (m_script_mode == fi::ScriptMode::RomToLilyPond)
 		rom_to_lilypond(m_in_file, m_out_file);
+	else if (m_script_mode == fi::ScriptMode::ProceduralMusicCompile)
+		compile_procedural_music(m_in_file, m_out_file);
+	else if (m_script_mode == fi::ScriptMode::ProceduralMusicProviderInstall)
+		install_procedural_music_provider(m_in_file, m_out_file);
 	// miscellaneous data dispatch
 	else if (m_script_mode == fi::ScriptMode::MiscBuild)
 		misc_to_nes(m_in_file, m_out_file, m_source_rom.empty() ? m_out_file : m_source_rom);
@@ -317,6 +450,280 @@ void fi::Cli::mml_to_lilypond(const std::string& p_mml_filename,
 		print_message);
 }
 
+void fi::Cli::compile_procedural_music(const std::string& p_mml_filename,
+	const std::string& p_json_filename) {
+	const auto source{ klib::file::read_file_as_strings(p_mml_filename) };
+	const auto json{ fm::pmusic::compile_json(source, p_mml_filename) };
+	klib::file::write_bytes_to_file(
+		std::vector<byte>(json.begin(), json.end()), p_json_filename);
+	std::cout << "Procedural music kit written to " << p_json_filename << "!\n";
+}
+
+void fi::Cli::install_procedural_music_provider(
+	const std::string& p_base_rom_filename,
+	const std::string& p_output_rom_filename) {
+	using namespace fh::ami;
+	if (m_pmusic_ram_base != RAM_REQUEST)
+		throw std::runtime_error(
+			"Procedural-music ABI is fixed at RAM base $04ef");
+	static constexpr std::array<byte, 3> SHA256_ORACLE{ 'a', 'b', 'c' };
+	if (sha256(SHA256_ORACLE)
+		!= "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+		throw std::runtime_error(
+			"Procedural-music report SHA-256 self-test failed");
+
+	const auto input_path{ normalized_absolute(p_base_rom_filename) };
+	const auto output_path{ normalized_absolute(p_output_rom_filename) };
+	if (input_path == output_path)
+		throw std::runtime_error(
+			"Procedural-music provider input and output ROM paths must differ");
+	if (!m_pmusic_report_json.empty()) {
+		const auto report_path{ normalized_absolute(m_pmusic_report_json) };
+		if (report_path == input_path || report_path == output_path)
+			throw std::runtime_error(
+				"Procedural-music report path must differ from both ROM paths");
+	}
+
+	auto rom{ load_rom_and_config(p_base_rom_filename) };
+	const auto before{ rom };
+	if (rom.size() != fe::nc::VANILLA_ROM_SIZE
+		|| rom[4] != fe::nc::VANILLA_BANK_COUNT)
+		throw std::runtime_error(
+			"Procedural-music provider requires a 16-bank Faxanadu ROM");
+	const auto free_ranges{ fe::ROM_Manager::parse_bank_15_free_ranges(m_config) };
+	if (free_ranges.empty())
+		throw std::runtime_error(
+			"No bank 15 free space is configured for the procedural-music provider");
+	const auto free_file_range{ fe::ROM_Manager::find_trailing_free_range(
+		rom, free_ranges.back()) };
+	const auto [cpu_start, cpu_end]{
+		fe::ROM_Manager::file_range_to_cpu_range(free_file_range) };
+	const auto spec{ std::format(
+		"AtlasDevFrameScheduler\n"
+		"AtlasDevMusicIntent hysteresis_frames={}",
+		m_pmusic_hysteresis_frames) };
+	const auto hacks{ fh::filter_general_hacks(15, fh::parse_general_hacks(spec)) };
+	const auto used{ fh::HackManager{}.install_general_hacks(
+		m_config, rom, 15, cpu_start, cpu_end, hacks, nullptr) };
+
+	if (rom.size() != before.size())
+		throw std::runtime_error(
+			"Procedural-music provider changed the ROM size");
+	const word scheduler_base{ fh::afs::find_base(rom) };
+	if (scheduler_base == 0)
+		throw std::runtime_error(
+			"Procedural-music provider failed its scheduler read-back check");
+	const auto scheduler_offset{
+		klib::Asm6502::get_file_offset(15, scheduler_base) };
+	constexpr std::array<std::size_t, 3> PRE_SITES{
+		fh::afs::OFF_PRE0, fh::afs::OFF_PRE1, fh::afs::OFF_PRE2
+	};
+	word publisher_base{ 0 };
+	for (std::size_t i{ 0 }; i < PRE_SITES.size(); ++i)
+		if (rom[scheduler_offset + fh::afs::OFF_ARM0 + i] == KIND) {
+			publisher_base = static_cast<word>(
+				rom[scheduler_offset + PRE_SITES[i]]
+				| (rom[scheduler_offset + PRE_SITES[i] + 1] << 8));
+			break;
+		}
+	if (publisher_base == 0)
+		throw std::runtime_error(
+			"Procedural-music provider failed its publisher read-back check");
+
+	const std::size_t allocation_cpu_end{ cpu_start + used };
+	if (publisher_base < cpu_start || publisher_base >= allocation_cpu_end)
+		throw std::runtime_error(
+			"Procedural-music provider reported an invalid publisher allocation");
+	const auto hook1_file{ klib::Asm6502::get_file_offset(15, 0xc9af) };
+	const auto hook2_file{ klib::Asm6502::get_file_offset(15, 0xc9de) };
+	const auto allocation_file{ klib::Asm6502::get_file_offset(
+		15, static_cast<word>(cpu_start)) };
+	const auto publisher_file{ klib::Asm6502::get_file_offset(15, publisher_base) };
+	const std::array<OwnedRange, 3> owned_ranges{
+		OwnedRange{ "nmi_dma_hook", 0xc9af, 0xc9b4, hook1_file, hook1_file + 5 },
+		OwnedRange{ "post_deadline_hook", 0xc9de, 0xc9e3, hook2_file, hook2_file + 5 },
+		OwnedRange{ "scheduler_and_publisher", cpu_start, allocation_cpu_end,
+			allocation_file, allocation_file + used }
+	};
+	const OwnedRange publisher_range{
+		"publisher", publisher_base, allocation_cpu_end,
+		publisher_file, allocation_file + used
+	};
+	std::size_t changed_bytes{ 0 };
+	for (std::size_t i{ 0 }; i < rom.size(); ++i) {
+		if (rom[i] == before[i])
+			continue;
+		++changed_bytes;
+		const bool owned{ std::ranges::any_of(owned_ranges,
+			[i](const OwnedRange& range) {
+				return i >= range.file_start && i < range.file_end;
+			}) };
+		if (!owned)
+			throw std::runtime_error(
+				"Procedural-music provider escaped its declared bank-15 ownership");
+	}
+
+	std::string report{ std::format(
+		"{{\n"
+		"  \"format\": \"faxedit-music-intent-install\",\n"
+		"  \"region\": \"us\",\n"
+		"  \"input_sha256\": \"{}\",\n"
+		"  \"output_sha256\": \"{}\",\n"
+		"  \"ram_abi\": {{\n"
+		"    \"start\": \"0x04ef\",\n"
+		"    \"end_exclusive\": \"0x04f8\",\n"
+		"    \"size\": 9,\n"
+		"    \"conductor_owned\": [\n"
+		"      {{\"start\": \"0x04ef\", \"end_exclusive\": \"0x04f3\"}},\n"
+		"      {{\"start\": \"0x04f6\", \"end_exclusive\": \"0x04f8\"}}\n"
+		"    ],\n"
+		"    \"publisher_owned\": [\n"
+		"      {{\"start\": \"0x04f3\", \"end_exclusive\": \"0x04f6\"}}\n"
+		"    ],\n"
+		"    \"bit_shared_0x04f3\": {{\n"
+		"      \"publisher_mask\": \"0x83\",\n"
+		"      \"conductor_mask\": \"0x40\",\n"
+		"      \"reserved_mask\": \"0x3c\",\n"
+		"      \"publication_store\": \"publish_ready_0x04f3_last\"\n"
+		"    }}\n"
+		"  }},\n"
+		"  \"config\": {{\n"
+		"    \"hysteresis_frames\": {},\n"
+		"    \"state_codes\": {{\"calm\": 0, \"explore\": 1, \"danger\": 2}},\n"
+		"    \"mantra_danger_policy\": \"clamp_to_explore\"\n"
+		"  }},\n"
+		"  \"producer_contract\": {{\n"
+		"    \"active_gate\": \"0x04f2 bit7\",\n"
+		"    \"family_source_for_mantra_clamp\": \"0x04f7 bits5..2\",\n"
+		"    \"publisher_writes_request_0x04ef\": false,\n"
+		"    \"request_family_merge_owner\": \"conductor\",\n"
+		"    \"landing_interlock_mask\": \"0xc0\",\n"
+		"    \"request_command_interlock_mask\": \"0xc0\",\n"
+		"    \"music_owner_allowed\": [\"0x00\", \"0x80..0xff\"],\n"
+		"    \"staged_token_must_equal_active_token\": true,\n"
+		"    \"ready_and_dwell_latch_until_consumed\": true\n"
+		"  }},\n"
+		"  \"scheduler_base\": \"0x{:04x}\",\n"
+		"  \"publisher_base\": \"0x{:04x}\",\n"
+		"  \"publisher_artifact\": {{\n"
+		"    \"cpu_start\": \"0x{:04x}\",\n"
+		"    \"cpu_end_exclusive\": \"0x{:04x}\",\n"
+		"    \"size\": {},\n"
+		"    \"sha256\": \"{}\"\n"
+		"  }},\n"
+		"  \"nmi_timing_certificate\": {{\n"
+		"    \"format\": \"atlasdev-music-intent-nmi-timing\",\n"
+		"    \"version\": {},\n"
+		"    \"cpu\": \"Ricoh 2A03 (NMOS 6502 timing)\",\n"
+		"    \"cycle_bound\": \"placement-and-configuration-independent-conservative\",\n"
+		"    \"instruction_bound\": \"maximum-executed-path\",\n"
+		"    \"publisher\": {{\n"
+		"      \"max_cycles\": {},\n"
+		"      \"max_instructions\": {}\n"
+		"    }},\n"
+		"    \"scheduler_pre_dispatch\": {{\n"
+		"      \"core_overhead_max\": {{\"cycles\": {}, \"instructions\": {}}},\n"
+		"      \"hook_call_and_padding\": {{\"cycles\": {}, \"instructions\": {}}},\n"
+		"      \"hook_cpu_instruction_max\": {{\"cycles\": {}, \"instructions\": {}}},\n"
+		"      \"displaced_vanilla\": {{\"cycles\": {}, \"instructions\": {}}},\n"
+		"      \"incremental_cpu_instruction_max\": {{\"cycles\": {}, \"instructions\": {}}}\n"
+		"    }},\n"
+		"    \"oam_dma\": {{\n"
+		"      \"stall_min_cycles\": {},\n"
+		"      \"stall_max_cycles\": {},\n"
+		"      \"alignment_delta_over_vanilla_max_cycles\": {}\n"
+		"    }},\n"
+		"    \"combined\": {{\n"
+		"      \"hook_cpu_instruction_max\": {{\"cycles\": {}, \"instructions\": {}}},\n"
+		"      \"hook_with_dma_max_cycles\": {},\n"
+		"      \"incremental_cpu_instruction_max\": {{\"cycles\": {}, \"instructions\": {}}},\n"
+		"      \"incremental_over_vanilla_max\": {{\"cycles\": {}, \"instructions\": {}}}\n"
+		"    }},\n"
+		"    \"scope\": {{\n"
+		"      \"publisher_entry_through_rts\": true,\n"
+		"      \"scheduler_boot_arm_included\": true,\n"
+		"      \"scheduler_counter_rollover_included\": true,\n"
+		"      \"displaced_oam_register_store_included\": true,\n"
+		"      \"oam_dma_alignment_delta_in_incremental_bound\": true,\n"
+		"      \"scheduler_quiet_eligible_path\": true,\n"
+		"      \"one_active_pre_role\": true,\n"
+		"      \"every_taken_branch_charged_page_cross\": true,\n"
+		"      \"nmi_entry_exit_excluded\": true,\n"
+		"      \"other_scheduler_roles_excluded\": true\n"
+		"    }}\n"
+		"  }},\n"
+		"  \"owned_ranges\": [\n",
+		sha256(std::span<const byte>{ before.data(), before.size() }),
+		sha256(std::span<const byte>{ rom.data(), rom.size() }),
+		m_pmusic_hysteresis_frames, scheduler_base, publisher_base,
+		publisher_range.cpu_start, publisher_range.cpu_end,
+		publisher_range.file_end - publisher_range.file_start,
+		sha256(rom, publisher_range),
+		fh::ami::timing::CERTIFICATE_VERSION,
+		fh::ami::timing::PUBLISHER_MAX_CYCLES,
+		fh::ami::timing::PUBLISHER_MAX_INSTRUCTIONS,
+		fh::ami::timing::SCHEDULER_CORE_OVERHEAD_MAX_CYCLES,
+		fh::ami::timing::SCHEDULER_CORE_OVERHEAD_MAX_INSTRUCTIONS,
+		fh::ami::timing::SCHEDULER_HOOK_CALL_AND_PADDING_CYCLES,
+		fh::ami::timing::SCHEDULER_HOOK_CALL_AND_PADDING_INSTRUCTIONS,
+		fh::ami::timing::SCHEDULER_PRE_DISPATCH_MAX_CYCLES,
+		fh::ami::timing::SCHEDULER_PRE_DISPATCH_MAX_INSTRUCTIONS,
+		fh::ami::timing::DISPLACED_VANILLA_CYCLES,
+		fh::ami::timing::DISPLACED_VANILLA_INSTRUCTIONS,
+		fh::ami::timing::SCHEDULER_INCREMENTAL_CPU_MAX_CYCLES,
+		fh::ami::timing::SCHEDULER_INCREMENTAL_MAX_INSTRUCTIONS,
+		fh::ami::timing::OAM_DMA_STALL_MIN_CYCLES,
+		fh::ami::timing::OAM_DMA_STALL_MAX_CYCLES,
+		fh::ami::timing::OAM_DMA_ALIGNMENT_DELTA_MAX_CYCLES,
+		fh::ami::timing::COMBINED_HOOK_CPU_MAX_CYCLES,
+		fh::ami::timing::COMBINED_HOOK_MAX_INSTRUCTIONS,
+		fh::ami::timing::COMBINED_HOOK_WITH_DMA_MAX_CYCLES,
+		fh::ami::timing::COMBINED_INCREMENTAL_CPU_MAX_CYCLES,
+		fh::ami::timing::COMBINED_INCREMENTAL_MAX_INSTRUCTIONS,
+		fh::ami::timing::COMBINED_INCREMENTAL_BUDGET_MAX_CYCLES,
+		fh::ami::timing::COMBINED_INCREMENTAL_BUDGET_MAX_INSTRUCTIONS) };
+	for (std::size_t i{ 0 }; i < owned_ranges.size(); ++i) {
+		const auto& range{ owned_ranges[i] };
+		report += std::format(
+			"    {{\n"
+			"      \"name\": \"{}\",\n"
+			"      \"bank\": 15,\n"
+			"      \"cpu_start\": \"0x{:04x}\",\n"
+			"      \"cpu_end_exclusive\": \"0x{:04x}\",\n"
+			"      \"file_start\": \"0x{:05x}\",\n"
+			"      \"file_end_exclusive\": \"0x{:05x}\",\n"
+			"      \"size\": {},\n"
+			"      \"input_sha256\": \"{}\",\n"
+			"      \"output_sha256\": \"{}\"\n"
+			"    }}{}\n",
+			range.name, range.cpu_start, range.cpu_end,
+			range.file_start, range.file_end, range.file_end - range.file_start,
+			sha256(before, range), sha256(rom, range),
+			i + 1 == owned_ranges.size() ? "" : ",");
+	}
+	std::size_t owned_bytes{ 0 };
+	for (const auto& range : owned_ranges)
+		owned_bytes += range.file_end - range.file_start;
+	report += std::format(
+		"  ],\n"
+		"  \"owned_bytes\": {},\n"
+		"  \"changed_bytes\": {},\n"
+		"  \"owned_input_fnv1a64\": \"{:016x}\",\n"
+		"  \"owned_output_fnv1a64\": \"{:016x}\",\n"
+		"  \"bank5_preserved\": true\n"
+		"}}\n",
+		owned_bytes, changed_bytes,
+		owned_fnv1a64(before, owned_ranges), owned_fnv1a64(rom, owned_ranges));
+
+	klib::file::write_bytes_to_file(rom, p_output_rom_filename);
+	if (!m_pmusic_report_json.empty())
+		klib::file::write_string_to_file(report, m_pmusic_report_json);
+	std::cout << std::format(
+		"Procedural-music provider installed: scheduler=${:04X}, publisher=${:04X}, "
+		"owned={}; changed={}; bank 5 preserved byte-for-byte.\n",
+		scheduler_base, publisher_base, owned_bytes, changed_bytes);
+}
+
 void fi::Cli::dump_config(const std::string& p_nes_filename,
 	const std::string& p_dump_filename) {
 	load_rom_and_config(p_nes_filename);
@@ -348,19 +755,20 @@ void fi::Cli::remap_fog(const std::string& p_in_nes_filename,
 void fi::Cli::parse_arguments(int arg_start, int argc, char** argv) {
 	for (int i{ arg_start }; i < argc; ++i) {
 		std::string argvi{ argv[i] };
+		const auto require_value = [&i, argc, argv](const char* error) {
+			if (i + 1 >= argc)
+				throw std::runtime_error(error);
+			return argv[++i];
+		};
 		if (argvi == appc::CLI_SOURCE_ROM.first ||
 			argvi == appc::CLI_SOURCE_ROM.second) {
-			if (i + 1 >= argc)
-				throw std::runtime_error("Source ROM option was set, but no source ROM file was specified");
-			else
-				m_source_rom = argv[++i];
+			m_source_rom = require_value(
+				"Source ROM option was set, but no source ROM file was specified");
 		}
 		else if (argvi == appc::CLI_REGION.first ||
 			argvi == appc::CLI_REGION.second) {
-			if (i + 1 >= argc)
-				throw std::runtime_error("Region option was used, but no ROM region was specified");
-			else
-				m_region = argv[++i];
+			m_region = require_value(
+				"Region option was used, but no ROM region was specified");
 		}
 		else if (argvi == appc::CLI_TILESET.first ||
 			argvi == appc::CLI_TILESET.second) {
@@ -379,17 +787,35 @@ void fi::Cli::parse_arguments(int arg_start, int argc, char** argv) {
 		}
 		else if (argvi == appc::CLI_SKIP_PATCHING.first ||
 			argvi == appc::CLI_SKIP_PATCHING.second) {
-			if (i + 1 >= argc)
-				throw std::runtime_error("Skip ROM patching option was used, but no options list was specified");
-			else {
-				const auto skip_list{ klib::str::split_string(argv[++i], ',') };
-				for (const auto& list_elem : skip_list) {
-					const auto option{ klib::str::to_lower(klib::str::trim(list_elem)) };
-					if (option.empty())
-						throw std::runtime_error("Empty ROM patch option in skip list");
-					m_patch_skips.push_back(option);
-				}
+			const auto skip_list{ klib::str::split_string(require_value(
+				"Skip ROM patching option was used, but no options list was specified"), ',') };
+			for (const auto& list_elem : skip_list) {
+				const auto option{ klib::str::to_lower(klib::str::trim(list_elem)) };
+				if (option.empty())
+					throw std::runtime_error("Empty ROM patch option in skip list");
+				m_patch_skips.push_back(option);
 			}
+		}
+		else if (argvi == appc::CLI_PMUSIC_HYSTERESIS_FRAMES.first
+			|| argvi == appc::CLI_PMUSIC_HYSTERESIS_FRAMES.second) {
+			const int value{ klib::str::parse_numeric(require_value(
+				"Hysteresis option is missing its value")) };
+			if (value < 0 || value > 0xffff)
+				throw std::runtime_error("Hysteresis frames must be in 0..65535");
+			m_pmusic_hysteresis_frames = static_cast<std::uint16_t>(value);
+		}
+		else if (argvi == appc::CLI_PMUSIC_RAM_BASE.first
+			|| argvi == appc::CLI_PMUSIC_RAM_BASE.second) {
+			const int value{ klib::str::parse_numeric(require_value(
+				"RAM-base option is missing its value")) };
+			if (value < 0 || value > 0xffff)
+				throw std::runtime_error("RAM base must be a 16-bit address");
+			m_pmusic_ram_base = static_cast<std::uint16_t>(value);
+		}
+		else if (argvi == appc::CLI_PMUSIC_REPORT_JSON.first
+			|| argvi == appc::CLI_PMUSIC_REPORT_JSON.second) {
+			m_pmusic_report_json = require_value(
+				"JSON-report option is missing its value");
 		}
 		else
 			set_flag(argvi);
@@ -501,6 +927,12 @@ void fi::Cli::set_mode(const std::string& p_mode) {
 	}
 	else if (check_mode(p_mode, appc::CMD_ROM_TO_LILYPOND)) {
 		m_script_mode = fi::ScriptMode::RomToLilyPond;
+	}
+	else if (check_mode(p_mode, appc::CMD_PMUSIC_COMPILE)) {
+		m_script_mode = fi::ScriptMode::ProceduralMusicCompile;
+	}
+	else if (check_mode(p_mode, appc::CMD_PMUSIC_PROVIDER_INSTALL)) {
+		m_script_mode = fi::ScriptMode::ProceduralMusicProviderInstall;
 	}
 	else if (check_mode(p_mode, appc::CMD_BUILD_MISC)) {
 		m_script_mode = fi::ScriptMode::MiscBuild;

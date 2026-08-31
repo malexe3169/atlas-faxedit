@@ -1828,6 +1828,7 @@
 			<entry key="AtlasDevSetMusic" value="Args=Byte" />
 			<entry key="AtlasDevPlaySFX" value="Args=Byte" />
 			<entry key="AtlasDevIfMusic" value="Args=Byte,Flow=Jump" />
+			<entry key="AtlasDevTriggerMusicEvent" value="Args=Byte" />
 			<entry key="AtlasDevShowSequentialMessages" value="Args=Byte:TextString+Byte:TextString+Byte:TextString+Byte:TextString" />
 			<entry key="AtlasDevShowNumberInMessage" value="Args=Byte:TextString+Byte" />
 			<entry key="AtlasDevShowChoiceToVar" value="Args=Byte+Byte" />

@@ -35,6 +35,7 @@ This document describes the hacks in the current library and their parameters. I
   - [AtlasDevDayNightCycle](#atlasdevdaynightcycle)
   - [AtlasDevInfectedTint](#atlasdevinfectedtint)
   - [AtlasDevTimeOfDay](#atlasdevtimeofday)
+  - [AtlasDevMusicIntent](#atlasdevmusicintent)
 
 <hr>
 
@@ -253,3 +254,76 @@ clock, so re-arming starts the day at the start hour again.
 ```text
 AtlasDevTimeOfDay hourlength=600 start=6 cell=$2038
 ```
+
+### AtlasDevMusicIntent
+
+Publishes transaction-safe family-local state requests for the sixteen-family
+score. It derives fixed state codes from the game's own indoor, outdoor, and
+live-enemy facts:
+
+| state | code | arrangement |
+| --- | --- | --- |
+| calm | `0` | `establish` |
+| explore | `1` | `drive` |
+| danger | `2` | `crisis` |
+
+The active family comes from bits 5..2 of the conductor's committed landing at
+`$04F7`. Mantra/Death has no game-requested crisis state, so a live danger fact
+in that family is clamped to explore. Its structural crisis fallback nodes
+remain valid score data. A same-family state change is legal in every other
+family, including terminal Outro.
+
+| parameter | default | meaning |
+| --- | --- | --- |
+| `hysteresis_frames` | `30` | consecutive eligible samples before publishing, `0` to `65535` |
+
+```text
+AtlasDevFrameScheduler
+AtlasDevMusicIntent hysteresis_frames=30
+```
+
+The shared record is `$04EF-$04F7`:
+
+| address | ownership | meaning |
+| --- | --- | --- |
+| `$04EF` | conductor/event wrappers | ordinary packed family/state, or an event/lifecycle command; publisher reads markers but never writes this byte |
+| `$04F0-$04F1` | conductor | PRNG state |
+| `$04F2` | conductor/loader | active-node token; bit 7 alone enables the publisher |
+| `$04F3` | bit-shared | bit 7 `PUBLISH_READY`, bit 6 `TXN_LOCK`, bits 5..2 zero, bits 1..0 candidate state |
+| `$04F4-$04F5` | publisher | 16-bit candidate dwell |
+| `$04F6` | conductor/loader | staged-node token |
+| `$04F7` | conductor/event producer | landing family/state plus bit 6 staged-event snapshot and bit 7 landing obligation |
+
+Every publisher write to `$04F3` preserves conductor bit 6 and clears reserved
+bits 5..2. Once bit 7 is set, candidate and dwell are immutable until the
+conductor consumes them. While `TXN_LOCK` or either high bit of `$04F7` is set,
+the active publisher makes no publisher-owned write at all. This closes the
+snapshot-first/event-command-last NMI interleaving and lets a ready candidate
+remain latched across a landing obligation.
+
+After hysteresis, ordinary publication is still refused unless `$04EF` has no
+event/lifecycle marker, `$04F6 == $04F2`, and music owner `$FA` is either zero
+or negative. Every positive load token `$01-$7F` blocks publication. When all
+gates agree, the publisher sets `PUBLISH_READY` in a final `$04F3` store. It
+never writes `$04EF`. The
+conductor sees READY later in the same NMI, merges `$04F7` family bits with the
+published low state bits, and owns the resulting EF/F7/F6 transaction. A failed
+attempt leaves the saturated candidate and dwell available for a later eligible
+sample. Inactive cleanup clears only publisher state and preserves `TXN_LOCK`.
+
+Install the publisher into a conductor-patched ROM with the dedicated CLI:
+
+```sh
+eoe-cli install-music-intent conductor.nes complete.nes --region us \
+  --ram-base 0x04ef --hysteresis 30 --json music-intent-install.json
+```
+
+The installer rejects any selected optional RAM record that intersects through
+`$04F7`, and verifies that no output byte escapes the two scheduler hooks and
+the contiguous bank-15 allocation. The JSON report records the shared bit
+masks, ordering and fail-closed gates, exact publisher byte range and SHA-256,
+and timing certificate version 2. The measured emitted-publisher maximum is
+348 cycles/114 instructions. With the unchanged scheduler overhead the full
+hook is 496 cycles/154 instructions, or 1,010 cycles with maximum OAM DMA. A
+budget already containing the vanilla OAM sequence adds at most 491 cycles/152
+instructions, including the conservative one-cycle DMA alignment delta.

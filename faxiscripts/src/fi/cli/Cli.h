@@ -1,6 +1,7 @@
 #ifndef FI_CLI_H
 #define FI_CLI_H
 
+#include <cstdint>
 #include <vector>
 #include <string>
 #include "fe/Config.h"
@@ -13,6 +14,7 @@ namespace fi {
 		IScriptBuild, IScriptExtract,
 		MmlExtract, MmlBuild, MmlToMidi, RomToMidi,
 		MmlToLilyPond, RomToLilyPond,
+		ProceduralMusicCompile, ProceduralMusicProviderInstall,
 		MScriptBuild, MScriptExtract,
 		BScriptBuild, BScriptExtract,
 		MiscBuild, MiscExtract,
@@ -26,11 +28,12 @@ namespace fi {
 		fi::ScriptMode m_script_mode;
 
 		std::string m_in_file, m_out_file, m_source_rom, m_region;
-		std::string m_config_xml, m_config_override_xml;
+		std::string m_config_xml, m_config_override_xml, m_pmusic_report_json;
 		bool m_strict, m_shop_comments, m_overwrite, m_notes,
 			m_lilypond_percussion, m_allow_cinematic_overflow;
 		byte m_tileset_no;
 		std::vector<byte> m_tiles;
+		std::uint16_t m_pmusic_hysteresis_frames, m_pmusic_ram_base;
 		std::vector<std::string> m_patch_skips;
 		fe::Config m_config;
 
@@ -93,6 +96,12 @@ namespace fi {
 			const std::string& p_out_file_prefix);
 		void mml_to_lilypond(const std::string& p_mml_filename,
 			const std::string& p_out_file_prefix);
+
+		// procedural music
+		void compile_procedural_music(const std::string& p_mml_filename,
+			const std::string& p_json_filename);
+		void install_procedural_music_provider(const std::string& p_base_rom_filename,
+			const std::string& p_output_rom_filename);
 
 		// miscellaneous data
 		void misc_to_nes(const std::string& p_asm_filename,

@@ -213,6 +213,8 @@ namespace fh {
 		constexpr word NumberOfItems{ 0x03c6 };
 		constexpr word World_DefaultMusic{ 0x03d1 };
 		constexpr word SavedScreen{ 0x03d6 };
+		// 0 inside a building and 4 outdoors in the USA-rev0 game state.
+		constexpr word AreaMode{ 0x0499 };
 		constexpr word PortraitSavedPalette{ 0x03d3 };
 		constexpr word DestBuildingScreen{ 0x03da };
 		constexpr word SelectedWeapon{ 0x03bd };

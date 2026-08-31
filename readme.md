@@ -21,6 +21,7 @@ See the [documentation](./docs/user-guide.md) for a detailed overview of the edi
 - [Scripting Documentation](./docs/scripting-guide.md)
   - [Script Recipes](./docs/script-recipes.md)
 - [MML (Music Macro Language) documentation](./docs/mml-guide.md)
+- [Procedural music kit authoring](./docs/procedural-music.md)
 - [Advanced Modding documentation](./docs/advanced-modding.md)
   - [General Hacks](./docs/general-hacks.md)
 - [Changelog](./docs/user-guide.md#changelog)

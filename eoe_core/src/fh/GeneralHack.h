@@ -17,7 +17,7 @@ namespace fh {
 		FlexibleItems, DynamicTilesets,
 		KillSwitch, SameWorldTransPal2Mus, FogRules,
 		AtlasDevFrameScheduler, AtlasDevDayNightCycle, AtlasDevInfectedTint,
-		AtlasDevTimeOfDay,
+		AtlasDevTimeOfDay, AtlasDevMusicIntent,
 		FastStart, QuestFlagItemDrops, BossLockedItems
 	};
 

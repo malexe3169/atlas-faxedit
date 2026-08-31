@@ -215,6 +215,10 @@ The GUI provides commands for:
 
 The same functionality is also available from the `eoe-cli` command-line application, as described below.
 
+Finite MML songs can also be assembled into weighted procedural music kits by
+adding ordinary metadata comments. See the
+[procedural music kit authoring guide](./procedural-music.md).
+
 ---
 
 ## Command-Line Interface

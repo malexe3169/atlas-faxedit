@@ -333,6 +333,15 @@
     <ClInclude Include="src\fm\MMLWriter.h">
       <Filter>Header Files\fm</Filter>
     </ClInclude>
+    <ClInclude Include="src\fm\ProceduralMusic.h">
+      <Filter>Header Files\fm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\fm\ProceduralMusicDirectiveParser.h">
+      <Filter>Header Files\fm</Filter>
+    </ClInclude>
+    <ClInclude Include="src\fm\ProceduralMusicPhraseLowering.h">
+      <Filter>Header Files\fm</Filter>
+    </ClInclude>
     <ClInclude Include="src\fm\MScriptLoader.h">
       <Filter>Header Files\fm</Filter>
     </ClInclude>
@@ -382,6 +391,9 @@
       <Filter>Header Files\fe\game</Filter>
     </ClInclude>
     <ClInclude Include="src\fh\AtlasDevFrameScheduler.h">
+      <Filter>Header Files\fh</Filter>
+    </ClInclude>
+    <ClInclude Include="src\fh\AtlasDevMusicIntent.h">
       <Filter>Header Files\fh</Filter>
     </ClInclude>
     <ClInclude Include="src\fh\GeneralHack.h">
@@ -587,6 +599,18 @@
     <ClCompile Include="src\fm\MMLWriter.cpp">
       <Filter>Source Files\fm</Filter>
     </ClCompile>
+    <ClCompile Include="src\fm\ProceduralMusic.cpp">
+      <Filter>Source Files\fm</Filter>
+    </ClCompile>
+    <ClCompile Include="src\fm\ProceduralMusicDirectiveParser.cpp">
+      <Filter>Source Files\fm</Filter>
+    </ClCompile>
+    <ClCompile Include="src\fm\ProceduralMusicPhraseLowering.cpp">
+      <Filter>Source Files\fm</Filter>
+    </ClCompile>
+    <ClCompile Include="src\fm\ProceduralMusicJson.cpp">
+      <Filter>Source Files\fm</Filter>
+    </ClCompile>
     <ClCompile Include="src\fm\MScriptLoader.cpp">
       <Filter>Source Files\fm</Filter>
     </ClCompile>
@@ -624,6 +648,9 @@
       <Filter>Source Files\fh</Filter>
     </ClCompile>
     <ClCompile Include="src\fh\AtlasDevInfectedTint.cpp">
+      <Filter>Source Files\fh</Filter>
+    </ClCompile>
+    <ClCompile Include="src\fh\AtlasDevMusicIntent.cpp">
       <Filter>Source Files\fh</Filter>
     </ClCompile>
     <ClCompile Include="src\fh\AtlasDevTimeOfDay.cpp">

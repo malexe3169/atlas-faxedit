@@ -86,6 +86,7 @@
     <ClInclude Include="src\fe\xml\Xml_helper_settings.h" />
     <ClInclude Include="src\fh\fh_constants.h" />
     <ClInclude Include="src\fh\AtlasDevFrameScheduler.h" />
+    <ClInclude Include="src\fh\AtlasDevMusicIntent.h" />
     <ClInclude Include="src\fh\GeneralHack.h" />
     <ClInclude Include="src\fh\HackManager.h" />
     <ClInclude Include="src\fh\TilemapChanges.h" />
@@ -102,6 +103,9 @@
     <ClInclude Include="src\fm\MMLWriter.h" />
     <ClInclude Include="src\fm\MScriptLoader.h" />
     <ClInclude Include="src\fm\MusicOpcode.h" />
+    <ClInclude Include="src\fm\ProceduralMusic.h" />
+    <ClInclude Include="src\fm\ProceduralMusicDirectiveParser.h" />
+    <ClInclude Include="src\fm\ProceduralMusicPhraseLowering.h" />
     <ClInclude Include="src\fm\song\Fraction.h" />
     <ClInclude Include="src\fm\song\LilyPond.h" />
     <ClInclude Include="src\fm\song\MMLChannel.h" />
@@ -170,6 +174,7 @@
     <ClCompile Include="src\fh\GeneralHack.cpp" />
     <ClCompile Include="src\fh\AtlasDevDayNightCycle.cpp" />
     <ClCompile Include="src\fh\AtlasDevInfectedTint.cpp" />
+    <ClCompile Include="src\fh\AtlasDevMusicIntent.cpp" />
     <ClCompile Include="src\fh\AtlasDevTimeOfDay.cpp" />
     <ClCompile Include="src\fh\AtlasDevFrameScheduler.cpp" />
     <ClCompile Include="src\fh\GeneralHacks.cpp" />
@@ -187,6 +192,10 @@
     <ClCompile Include="src\fm\MMLWriter.cpp" />
     <ClCompile Include="src\fm\MScriptLoader.cpp" />
     <ClCompile Include="src\fm\MusicOpcode.cpp" />
+    <ClCompile Include="src\fm\ProceduralMusic.cpp" />
+    <ClCompile Include="src\fm\ProceduralMusicDirectiveParser.cpp" />
+    <ClCompile Include="src\fm\ProceduralMusicPhraseLowering.cpp" />
+    <ClCompile Include="src\fm\ProceduralMusicJson.cpp" />
     <ClCompile Include="src\fm\song\Fraction.cpp" />
     <ClCompile Include="src\fm\song\LilyPond.cpp" />
     <ClCompile Include="src\fm\song\MMLChannel.cpp" />

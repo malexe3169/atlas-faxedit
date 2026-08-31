@@ -70,6 +70,11 @@ namespace fm {
 	};
 
 	struct MMLChannel {
+		// Location of the channel directive in authored MML. Keeping this on
+		// the parsed channel lets downstream compilers report errors discovered
+		// only after bytecode generation against the original source.
+		int source_line{ 0 };
+		int source_column{ 0 };
 
 		// VM variables
 		VM vm;

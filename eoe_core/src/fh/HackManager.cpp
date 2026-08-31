@@ -1,5 +1,6 @@
 #include "HackManager.h"
 #include "AtlasDevFrameScheduler.h"
+#include "AtlasDevMusicIntent.h"
 #include "fh_constants.h"
 #include "fe/fe_constants.h"
 #include "fe/nes_constants.h"
@@ -1044,6 +1045,41 @@ word fh::HackManager::apply_AtlasDevSetMusic(const fe::Config& p_config,
 	code.bcs("@done");                                        // 17..255: safe no-op
 	code.sta_zp(RAM::ZP_MusicCurrent);
 
+	code.label("@done");
+	code.jmp(cfg_word(p_config, c::ID_ROM_ISCRIPTS_INVOKENEXTACTION));
+
+	return get_next_cpu_addr(cpu_addr,
+		code.apply_hack_and_clear(p_rom, 12, cpu_addr));
+}
+
+// AtlasDevTriggerMusicEvent Event
+//
+// Queue one binding-generated sparse-event index for the NMI-side v2
+// conductor.  A direct main-line $04f7/$04ef pair can be interrupted between
+// stores, so this handler owns neither byte.  The single-byte mailbox makes
+// publication atomic: zero is empty, 1..32 encode indexes 0..31, and an
+// occupied mailbox is first-writer-wins.  The conductor copies then clears the
+// mailbox, validates the event directory, derives its landing, and only then
+// publishes $04f7 before $04ef.
+word fh::HackManager::apply_AtlasDevTriggerMusicEvent(
+	const fe::Config& p_config, std::vector<byte>& p_rom, word cpu_addr) const {
+	using namespace fh::ami;
+	klib::Asm6502 code;
+
+	code.jsr(cfg_word(p_config, c::ID_ROM_ISCRIPTS_LOADBYTE));
+	code.cmp_imm(static_cast<byte>(MAX_EVENT_INDEX + 1));
+	code.bcs("@done");                    // 32..255: invalid, no write
+	code.clc();
+	code.adc_imm(0x01);                   // queue encoding: event + 1
+	code.pha();
+	code.lda_abs(RAM_EVENT_MAILBOX);
+	code.bne("@busy");                    // first writer wins
+	code.pla();
+	code.sta_abs(RAM_EVENT_MAILBOX);       // sole runtime publication store
+	code.jmp(cfg_word(p_config, c::ID_ROM_ISCRIPTS_INVOKENEXTACTION));
+
+	code.label("@busy");
+	code.pla();
 	code.label("@done");
 	code.jmp(cfg_word(p_config, c::ID_ROM_ISCRIPTS_INVOKENEXTACTION));
 
@@ -5008,6 +5044,10 @@ std::size_t fh::HackManager::apply_script_library(const fe::Config& p_config, st
 
 		case HackLib::AtlasDevIfMusic:
 			cpu_addr = apply_AtlasDevIfMusic(p_config, p_rom, cpu_addr);
+			break;
+
+		case HackLib::AtlasDevTriggerMusicEvent:
+			cpu_addr = apply_AtlasDevTriggerMusicEvent(p_config, p_rom, cpu_addr);
 			break;
 
 		case HackLib::AtlasDevShowSequentialMessages:

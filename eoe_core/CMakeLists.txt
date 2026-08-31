@@ -74,6 +74,10 @@ add_library(eoe_core STATIC
     src/fm/MMLWriter.cpp
     src/fm/MScriptLoader.cpp
     src/fm/MusicOpcode.cpp
+    src/fm/ProceduralMusic.cpp
+    src/fm/ProceduralMusicDirectiveParser.cpp
+    src/fm/ProceduralMusicPhraseLowering.cpp
+    src/fm/ProceduralMusicJson.cpp
     src/fm/fm_util.cpp
 
     src/fm/song/Fraction.cpp
@@ -88,6 +92,7 @@ add_library(eoe_core STATIC
     src/fh/HackManager.cpp
     src/fh/AtlasDevDayNightCycle.cpp
     src/fh/AtlasDevInfectedTint.cpp
+    src/fh/AtlasDevMusicIntent.cpp
     src/fh/AtlasDevTimeOfDay.cpp
     src/fh/AtlasDevFrameScheduler.cpp
     src/fh/GeneralHacks.cpp

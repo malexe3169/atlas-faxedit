@@ -32,6 +32,7 @@ namespace fh {
 		AtlasDevIfVarEqual, AtlasDevIfVarLess, AtlasDevIfVarGreaterEqual,
 		AtlasDevShakeScreen, AtlasDevFadeOut, AtlasDevFadeIn,
 		AtlasDevSetMusic, AtlasDevPlaySFX, AtlasDevIfMusic,
+		AtlasDevTriggerMusicEvent,
 		AtlasDevShowSequentialMessages, AtlasDevShowNumberInMessage, AtlasDevShowChoiceToVar, AtlasDevClearPortrait, AtlasDevEntitySayMessage, AtlasDevShowMessageFromVar, AtlasDevHideTextbox, AtlasDevSetPortrait,
 		AtlasDevOpenTextbox, AtlasDevCloseDialogue,
 		AtlasDevIfEntityCountAtLeast, AtlasDevCountActiveEntities, AtlasDevFindEntity,
@@ -126,6 +127,8 @@ namespace fh {
 		word apply_AtlasDevSetMusic(const fe::Config& p_config, std::vector<byte>& p_rom, word cpu_addr) const;
 		word apply_AtlasDevPlaySFX(const fe::Config& p_config, std::vector<byte>& p_rom, word cpu_addr) const;
 		word apply_AtlasDevIfMusic(const fe::Config& p_config, std::vector<byte>& p_rom, word cpu_addr) const;
+		word apply_AtlasDevTriggerMusicEvent(const fe::Config& p_config,
+			std::vector<byte>& p_rom, word cpu_addr) const;
 
 		word apply_AtlasDevShowSequentialMessages(const fe::Config& p_config, std::vector<byte>& p_rom, word cpu_addr) const;
 		word apply_AtlasDevShowNumberInMessage(const fe::Config& p_config, std::vector<byte>& p_rom, word cpu_addr) const;
@@ -295,6 +298,8 @@ namespace fh {
 		word install_AtlasDevInfectedTint(const fe::Config&, std::vector<byte>& p_rom, word cpu_addr,
 			const fh::GeneralHack&) const;
 		word install_AtlasDevTimeOfDay(const fe::Config&, std::vector<byte>& p_rom, word cpu_addr,
+			const fh::GeneralHack&) const;
+		word install_AtlasDevMusicIntent(const fe::Config&, std::vector<byte>& p_rom, word cpu_addr,
 			const fh::GeneralHack&) const;
 		// bank 12 general hacks
 		word install_FlexibleItems(const fe::Config& p_config, std::vector<byte>& p_rom, word cpu_addr,
